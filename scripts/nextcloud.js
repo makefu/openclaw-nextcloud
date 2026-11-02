@@ -13677,6 +13677,8 @@ var require_date_fns = __commonJS({
 });
 
 // index.js
+import fs from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { Buffer as Buffer2 } from "node:buffer";
 
@@ -16420,16 +16422,16 @@ var MatcherView = class {
    * @returns {string|undefined}
    */
   getCurrentTag() {
-    const path = this._matcher.path;
-    return path.length > 0 ? path[path.length - 1].tag : void 0;
+    const path2 = this._matcher.path;
+    return path2.length > 0 ? path2[path2.length - 1].tag : void 0;
   }
   /**
    * Get current namespace.
    * @returns {string|undefined}
    */
   getCurrentNamespace() {
-    const path = this._matcher.path;
-    return path.length > 0 ? path[path.length - 1].namespace : void 0;
+    const path2 = this._matcher.path;
+    return path2.length > 0 ? path2[path2.length - 1].namespace : void 0;
   }
   /**
    * Get current node's attribute value.
@@ -16437,9 +16439,9 @@ var MatcherView = class {
    * @returns {*}
    */
   getAttrValue(attrName) {
-    const path = this._matcher.path;
-    if (path.length === 0) return void 0;
-    return path[path.length - 1].values?.[attrName];
+    const path2 = this._matcher.path;
+    if (path2.length === 0) return void 0;
+    return path2[path2.length - 1].values?.[attrName];
   }
   /**
    * Check if current node has an attribute.
@@ -16447,9 +16449,9 @@ var MatcherView = class {
    * @returns {boolean}
    */
   hasAttr(attrName) {
-    const path = this._matcher.path;
-    if (path.length === 0) return false;
-    const current = path[path.length - 1];
+    const path2 = this._matcher.path;
+    if (path2.length === 0) return false;
+    const current = path2[path2.length - 1];
     return current.values !== void 0 && attrName in current.values;
   }
   /**
@@ -16457,18 +16459,18 @@ var MatcherView = class {
    * @returns {number}
    */
   getPosition() {
-    const path = this._matcher.path;
-    if (path.length === 0) return -1;
-    return path[path.length - 1].position ?? 0;
+    const path2 = this._matcher.path;
+    if (path2.length === 0) return -1;
+    return path2[path2.length - 1].position ?? 0;
   }
   /**
    * Get current node's repeat counter (occurrence count of this tag name).
    * @returns {number}
    */
   getCounter() {
-    const path = this._matcher.path;
-    if (path.length === 0) return -1;
-    return path[path.length - 1].counter ?? 0;
+    const path2 = this._matcher.path;
+    if (path2.length === 0) return -1;
+    return path2[path2.length - 1].counter ?? 0;
   }
   /**
    * Get current node's sibling index (alias for getPosition).
@@ -18420,19 +18422,19 @@ var Shares = {
       expireDate: s.expiration || null
     };
   },
-  async list({ path = null } = {}) {
+  async list({ path: path2 = null } = {}) {
     let endpoint = "/ocs/v2.php/apps/files_sharing/api/v1/shares";
-    if (path) {
-      const cleanPath = path.startsWith("/") ? path : `/${path}`;
+    if (path2) {
+      const cleanPath = path2.startsWith("/") ? path2 : `/${path2}`;
       endpoint += `?path=${encodeURIComponent(cleanPath)}`;
     }
     const envelope = await request(endpoint, { method: "GET", headers: this._ocsHeaders });
     const data = this._unwrap(envelope) || [];
     return (Array.isArray(data) ? data : [data]).map((s) => this._normalize(s));
   },
-  async createLink({ path, permissions = "read", password = null, expireDate = null }) {
-    if (!path) throw new Error("Missing path for share");
-    const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  async createLink({ path: path2, permissions = "read", password = null, expireDate = null }) {
+    if (!path2) throw new Error("Missing path for share");
+    const cleanPath = path2.startsWith("/") ? path2 : `/${path2}`;
     const permMap = {
       read: 1,
       // read
@@ -19077,6 +19079,310 @@ var Deck = {
     return { success: true, id: commentId };
   }
 };
+var Cookbook = {
+  // Cookbook REST lives under /index.php/apps/cookbook/api/v1 (verified against cookbook 0.11.x, api v1.2).
+  _base: "/index.php/apps/cookbook/api/v1",
+  _headers: { "Accept": "application/json" },
+  _jsonHeaders: { "Accept": "application/json", "Content-Type": "application/json" },
+  // Presentation/derived fields the server injects on read; sending them back would
+  // make it re-download the image on every save. Dates round-trip on purpose: PUT
+  // without dateCreated resets the creation timestamp to now.
+  _SERVER_FIELDS: ["printImage", "imageUrl", "@context", "@type"],
+  _NUTRITION: {
+    calories: "calories",
+    protein: "proteinContent",
+    carbs: "carbohydrateContent",
+    fat: "fatContent",
+    sugar: "sugarContent",
+    sodium: "sodiumContent",
+    fiber: "fiberContent",
+    cholesterol: "cholesterolContent",
+    saturatedFat: "saturatedFatContent"
+  },
+  // Cookbook replies with plain-text/HTML bodies on 4xx-5xx and with JSON-encoded
+  // scalars (e.g. "Recipe 123 deleted successfully") on success, so this bypasses
+  // request()'s JSON auto-parse and decodes by hand.
+  async _api(endpoint, options = {}) {
+    const res = await fetch(`${CONFIG.url}${endpoint}`, {
+      ...options,
+      headers: { "Authorization": AUTH_HEADER, "User-Agent": "OpenClaw-Nextcloud-Skill", ...this._headers, ...options.headers }
+    });
+    const text = await res.text();
+    let parsed = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!res.ok) {
+      let msg = parsed && typeof parsed === "object" ? parsed.msg ?? JSON.stringify(parsed) : parsed !== null ? String(parsed) : text;
+      msg = String(msg).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
+      if (!msg) msg = res.statusText;
+      if (res.status === 404 && endpoint.startsWith(this._base)) {
+        const isRecipe = /^\/recipes\/[^/]+$/.test(endpoint.slice(this._base.length));
+        if (isRecipe) throw new Error(`Recipe not found: ${endpoint.slice(this._base.length + "/recipes/".length)}`);
+        throw new Error(`Cookbook HTTP 404 for '${endpoint}'. Is the Cookbook app installed and enabled on this instance?`);
+      }
+      throw new Error(`Cookbook HTTP ${res.status}${msg ? `: ${msg}` : ""}`);
+    }
+    if (parsed === null) {
+      throw new Error(`Cookbook returned a non-JSON body for '${endpoint}': ${text.replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+    return parsed;
+  },
+  // The server stores keywords as a comma-separated string; CLI flags may pass a string or a list.
+  _kwJoin(kw) {
+    if (Array.isArray(kw)) return kw.map((k) => String(k).trim()).filter(Boolean).join(",");
+    return String(kw).trim();
+  },
+  _webUrl(id) {
+    const baseUrl = CONFIG.url.replace(/\/+$/, "");
+    return `${baseUrl}/index.php/apps/cookbook/#/recipe/${id}`;
+  },
+  _imageUrl(id, size = "full") {
+    return `${CONFIG.url.replace(/\/+$/, "")}${this._base}/recipes/${id}/image?size=${size}`;
+  },
+  _abs(u) {
+    if (!u || typeof u !== "string") return u || null;
+    return u.startsWith("http") ? u : CONFIG.url.replace(/\/+$/, "") + u;
+  },
+  _stub(r) {
+    const id = String(r.recipe_id ?? r.id ?? "");
+    return {
+      id,
+      name: r.name,
+      category: r.category ?? null,
+      keywords: r.keywords ?? null,
+      dateCreated: r.dateCreated ?? null,
+      dateModified: r.dateModified ?? null,
+      imageUrl: this._abs(r.imageUrl),
+      url: this._webUrl(id)
+    };
+  },
+  // Derived/injected fields must not be echoed back on PUT (image would be
+  // re-downloaded every save); dates are kept so dateCreated survives an edit.
+  _stripServerFields(r) {
+    const out = { ...r };
+    for (const f of this._SERVER_FIELDS) delete out[f];
+    return out;
+  },
+  // Split a bulk CLI value into recipe lines: explicit `--` separator wins,
+  // then newlines, then ';'. Single segment stays one line.
+  _lines(v) {
+    if (Array.isArray(v)) return v.map(String);
+    const s = String(v).trim();
+    if (!s) return [];
+    const dd = s.split("--").map((x) => x.trim()).filter(Boolean);
+    if (dd.length > 1) return dd;
+    const nl = s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    if (nl.length > 1) return nl;
+    const semi = s.split(";").map((x) => x.trim()).filter(Boolean);
+    if (semi.length > 1) return semi;
+    return [s];
+  },
+  // ISO 8601 durations (PT1H30M) pass through; otherwise parse minutes/hours into one.
+  _dur(v) {
+    const s = String(v).trim();
+    if (/^P(\d+Y)?(\d+M)?(\d+W)?(T(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/i.test(s) && s.length > 1) return s.toUpperCase();
+    if (/^\d+(\.\d+)?$/.test(s)) return this._durParts(0, parseFloat(s));
+    const h = s.match(/(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hour|hours)/i);
+    const m = s.match(/(\d+(?:[.,]\d+)?)\s*(?:m|min|mins|minute|minutes)/i);
+    const hours = h ? parseFloat(h[1].replace(",", ".")) : 0;
+    let mins = m ? parseFloat(m[1].replace(",", ".")) : 0;
+    if (h && !m) {
+      const trailing = s.slice(s.indexOf(h[0]) + h[0].length).match(/^\s*(\d+(?:[.,]\d+)?)\s*$/);
+      if (trailing) mins = parseFloat(trailing[1].replace(",", "."));
+    }
+    if (!hours && !mins) {
+      throw new Error(`Cannot parse duration '${v}'. Use e.g. "90", "90 min", "1h30", or ISO 8601 "PT1H30M".`);
+    }
+    return this._durParts(hours, mins);
+  },
+  _durParts(hours, mins) {
+    const total = Math.round(hours * 60 + mins);
+    const hh = Math.floor(total / 60);
+    const mm = total % 60;
+    return `PT${hh}H${mm}M`;
+  },
+  // Map CLI options onto a schema.org Recipe payload; only defined flags are touched.
+  _applyOptions(payload, options) {
+    if (options.title !== void 0) payload.name = options.title;
+    if (options.description !== void 0) payload.description = options.description;
+    if (options.category !== void 0) payload.recipeCategory = options.category;
+    if (options.ingredients !== void 0) payload.recipeIngredient = this._lines(options.ingredients);
+    if (options.instructions !== void 0) payload.recipeInstructions = this._lines(options.instructions);
+    if (options.keywords !== void 0) payload.keywords = this._kwJoin(options.keywords);
+    if (options.yield !== void 0) {
+      const n = Number(options.yield);
+      payload.recipeYield = Number.isFinite(n) ? n : String(options.yield);
+    }
+    if (options.tools !== void 0) {
+      const t = this._lines(options.tools);
+      payload.tool = t.length === 1 ? t[0] : t;
+    }
+    if (options.prepTime !== void 0) payload.prepTime = this._dur(options.prepTime);
+    if (options.cookTime !== void 0) payload.cookTime = this._dur(options.cookTime);
+    if (options.totalTime !== void 0) payload.totalTime = this._dur(options.totalTime);
+    if (options.image !== void 0) payload.image = options.image;
+    const nutrition = payload.nutrition && typeof payload.nutrition === "object" ? { ...payload.nutrition } : {};
+    let touched = false;
+    for (const [flag, key] of Object.entries(this._NUTRITION)) {
+      if (options[flag] !== void 0) {
+        nutrition[key] = options[flag];
+        touched = true;
+      }
+    }
+    if (touched) payload.nutrition = nutrition;
+    return payload;
+  },
+  // --- Recipes ---
+  async list(options = {}) {
+    const { query, category, keywords } = options;
+    const picked = [query, category, keywords].filter((v) => v !== void 0 && v !== null);
+    if (picked.length > 1) throw new Error("Pick only one of --query, --category, --keywords.");
+    let endpoint = `${this._base}/recipes`;
+    if (query) endpoint = `${this._base}/search/${encodeURIComponent(query)}`;
+    else if (category) endpoint = `${this._base}/category/${encodeURIComponent(category)}`;
+    else if (keywords) endpoint = `${this._base}/tags/${encodeURIComponent(this._kwJoin(keywords))}`;
+    const data = await this._api(endpoint);
+    return this._ensureList(data).map((r) => this._stub(r));
+  },
+  _ensureList(data) {
+    if (!data) return [];
+    if (typeof data === "string") throw new Error(data.trim() || "Cookbook request failed");
+    return Array.isArray(data) ? data : [data];
+  },
+  async get(id) {
+    if (!id) throw new Error("Recipe ID is required (--recipe <id>).");
+    const r = await this._api(`${this._base}/recipes/${encodeURIComponent(id)}`);
+    if (!r || typeof r !== "object") throw new Error(`Recipe ${id} not found.`);
+    const rid = String(r.id ?? id);
+    return {
+      ...this._stripServerFields(r),
+      id: rid,
+      imageUrl: r.imageUrl ? this._abs(r.imageUrl) : this._imageUrl(rid, "full"),
+      url: this._webUrl(rid)
+    };
+  },
+  async create(options = {}) {
+    if (!options.title || String(options.title).trim() === "") {
+      throw new Error("Title (--title) is required for creating a recipe.");
+    }
+    const payload = this._applyOptions({}, options);
+    let res;
+    try {
+      res = await this._api(`${this._base}/recipes`, { method: "POST", headers: this._jsonHeaders, body: JSON.stringify(payload) });
+    } catch (e) {
+      throw new Error(`Recipe create failed: ${e.message.replace(/^Request failed:\s*/, "")}`);
+    }
+    const id = String(typeof res === "object" && res !== null ? res.id ?? res.recipe_id ?? "" : res);
+    if (!/^\d+$/.test(id)) throw new Error(`Recipe create returned unexpected result: ${JSON.stringify(res)}`);
+    return await this.get(id);
+  },
+  async edit(id, options = {}) {
+    if (!id) throw new Error("Recipe ID is required for edit (--recipe <id>).");
+    if (Object.keys(options).length === 0) {
+      throw new Error("Nothing to update. Provide at least one of --title, --description, --category, --ingredients, --instructions, --keywords, --yield, --tools, --image, time or nutrition flags.");
+    }
+    const current = await this.get(id);
+    const payload = this._applyOptions(this._stripServerFields(current), options);
+    payload.id = Number(String(current.id));
+    let res;
+    try {
+      res = await this._api(`${this._base}/recipes/${encodeURIComponent(id)}`, { method: "PUT", headers: this._jsonHeaders, body: JSON.stringify(payload) });
+    } catch (e) {
+      throw new Error(`Recipe update failed: ${e.message.replace(/^Request failed:\s*/, "")}`);
+    }
+    const newId = String(typeof res === "object" && res !== null ? res.id ?? res.recipe_id ?? payload.id : res);
+    if (!/^\d+$/.test(newId)) throw new Error(`Recipe update returned unexpected result: ${JSON.stringify(res)}`);
+    return await this.get(newId);
+  },
+  async delete(id) {
+    if (!id) throw new Error("Recipe ID is required for deletion (--recipe <id>).");
+    await this._api(`${this._base}/recipes/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return { success: true, id };
+  },
+  // Fetch a recipe from a public URL via the Cookbook scrapers (whitelisted sites only).
+  async import(url, title) {
+    if (!url || String(url).trim() === "") throw new Error("URL (--url) is required for import.");
+    let res;
+    try {
+      res = await this._api(`${this._base}/import`, { method: "POST", headers: this._jsonHeaders, body: JSON.stringify({ url: String(url).trim() }) });
+    } catch (e) {
+      throw new Error(`Recipe import failed: ${e.message.replace(/^Request failed:\s*/, "")}`);
+    }
+    if (res && typeof res === "object" && res.msg) throw new Error(`Recipe import failed: ${res.msg}`);
+    const imported = res;
+    if (!imported || !imported.id) throw new Error(`Recipe import returned unexpected result: ${JSON.stringify(res)}`);
+    const id = String(imported.id);
+    if (title && String(title).trim() !== "") {
+      const renamed = await this.edit(id, { title: String(title).trim() });
+      return { success: true, id, name: renamed.name };
+    }
+    return { success: true, id, name: imported.name };
+  },
+  async downloadImage(id, size = "full", outPath) {
+    if (!id) throw new Error("Recipe ID is required (--recipe <id>).");
+    if (!["full", "thumb", "thumb16"].includes(size)) {
+      throw new Error(`Unknown image size '${size}'. Use full, thumb or thumb16.`);
+    }
+    const target = outPath ? path.resolve(outPath) : path.resolve(`recipe-${id}-${size}.jpg`);
+    const res = await fetch(this._imageUrl(id, size), {
+      method: "GET",
+      headers: { "Authorization": AUTH_HEADER, "User-Agent": "OpenClaw-Nextcloud-Skill", "Accept": "image/*" }
+    });
+    if (!res.ok) {
+      const body = (await res.text()).trim().replace(/<[^>]*>/g, " ").slice(0, 200);
+      throw new Error(`Image download failed: HTTP ${res.status}${body ? `: ${body}` : ""}`);
+    }
+    const buf = Buffer2.from(await res.arrayBuffer());
+    fs.writeFileSync(target, buf);
+    return { id, size, path: target, bytes: buf.length, contentType: res.headers.get("content-type") };
+  },
+  // --- Categories ---
+  async listCategories() {
+    const data = await this._api(`${this._base}/categories`);
+    return this._ensureList(data);
+  },
+  // Renames the category on every recipe that carries it.
+  async renameCategory(from, to) {
+    if (!from) throw new Error("Category is required (--category <name>).");
+    if (!to || String(to).trim() === "") throw new Error("New name is required (--name <new name>).");
+    const res = await this._api(`${this._base}/category/${encodeURIComponent(from)}`, {
+      method: "PUT",
+      headers: this._jsonHeaders,
+      body: JSON.stringify({ name: String(to).trim() })
+    });
+    return { success: true, from, to: res };
+  },
+  // --- Keywords ---
+  async listKeywords() {
+    const data = await this._api(`${this._base}/keywords`);
+    return this._ensureList(data);
+  },
+  // --- Config ---
+  async getConfig() {
+    return await this._api(`${this._base}/config`);
+  },
+  async setConfig(updates = {}) {
+    const payload = {};
+    if (updates.folder !== void 0) payload.folder = updates.folder;
+    if (updates.updateInterval !== void 0) payload.update_interval = Number(updates.updateInterval);
+    if (updates.printImage !== void 0) payload.print_image = updates.printImage;
+    if (updates.visibleBlocks !== void 0) payload.visibleInfoBlocks = updates.visibleBlocks;
+    if (Object.keys(payload).length === 0) {
+      throw new Error("Nothing to update. Provide --folder, --interval, --print-image or --visible-blocks.");
+    }
+    await this._api(`${this._base}/config`, { method: "POST", headers: this._jsonHeaders, body: JSON.stringify(payload) });
+    return await this.getConfig();
+  },
+  async reindex() {
+    await this._api(`${this._base}/reindex`, { method: "POST", headers: this._jsonHeaders, body: "{}" });
+    return { success: true, message: "Cookbook search index reindex triggered." };
+  }
+};
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -19129,8 +19435,8 @@ async function main() {
     } else if (command === "files") {
       if (subCommand === "list") {
         const pathIndex = args.indexOf("--path");
-        const path = pathIndex !== -1 ? args[pathIndex + 1] : "/";
-        const result = await Files.list(path);
+        const path2 = pathIndex !== -1 ? args[pathIndex + 1] : "/";
+        const result = await Files.list(path2);
         output(result);
       } else if (subCommand === "search") {
         const queryIndex = args.indexOf("--query");
@@ -19545,8 +19851,141 @@ async function main() {
       } else {
         throw new Error("Unknown labels command");
       }
+    } else if (command === "recipes" || command === "categories" || command === "keywords" || command === "cookbook") {
+      let recipeOptions = function() {
+        const options = {};
+        const title = flag("--title");
+        if (title !== void 0) options.title = title;
+        const description = flag("--description");
+        if (description !== void 0) options.description = description;
+        const category = flag("--category");
+        if (category !== void 0) options.category = category;
+        const ingredients = flag("--ingredients");
+        if (ingredients !== void 0) options.ingredients = ingredients;
+        const instructions = flag("--instructions");
+        if (instructions !== void 0) options.instructions = instructions;
+        const keywords = flag("--keywords");
+        if (keywords !== void 0) options.keywords = keywords;
+        const yld = flag("--yield");
+        if (yld !== void 0) options.yield = yld;
+        const tools = flag("--tools");
+        if (tools !== void 0) options.tools = tools;
+        const image = flag("--image");
+        if (image !== void 0) options.image = image;
+        const prep = flag("--prep-time");
+        if (prep !== void 0) options.prepTime = prep;
+        const cook = flag("--cook-time");
+        if (cook !== void 0) options.cookTime = cook;
+        const total = flag("--total-time");
+        if (total !== void 0) options.totalTime = total;
+        for (const [arg, key] of Object.entries(nutritionFlags)) {
+          const v = flag(arg);
+          if (v !== void 0) options[key] = v;
+        }
+        return options;
+      };
+      const flag = (name) => {
+        const i = args.indexOf(name);
+        if (i === -1) return void 0;
+        const v = args[i + 1];
+        if (v === void 0 || v.startsWith("--")) throw new Error(`Missing value for ${name}`);
+        return v;
+      };
+      const recipeId = () => {
+        const v = flag("--recipe");
+        if (v === void 0) throw new Error("Missing --recipe <id>");
+        return v;
+      };
+      const nutritionFlags = {
+        "--nutrition-calories": "calories",
+        "--nutrition-protein": "protein",
+        "--nutrition-carbs": "carbs",
+        "--nutrition-fat": "fat",
+        "--nutrition-sugar": "sugar",
+        "--nutrition-sodium": "sodium",
+        "--nutrition-fiber": "fiber",
+        "--nutrition-cholesterol": "cholesterol",
+        "--nutrition-saturated-fat": "saturatedFat"
+      };
+      if (command === "recipes") {
+        if (subCommand === "list") {
+          output(await Cookbook.list({
+            query: flag("--query"),
+            category: flag("--category"),
+            keywords: flag("--keywords")
+          }));
+        } else if (subCommand === "get") {
+          output(await Cookbook.get(recipeId()));
+        } else if (subCommand === "create") {
+          output(await Cookbook.create(recipeOptions()));
+        } else if (subCommand === "edit") {
+          const id = recipeId();
+          const options = recipeOptions();
+          output(await Cookbook.edit(id, options));
+        } else if (subCommand === "delete") {
+          output(await Cookbook.delete(recipeId()));
+        } else if (subCommand === "import") {
+          const url = flag("--url");
+          if (url === void 0) throw new Error("Missing --url <recipe page URL>");
+          output(await Cookbook.import(url, flag("--title")));
+        } else if (subCommand === "image") {
+          const id = recipeId();
+          const size = flag("--size") || "full";
+          output(await Cookbook.downloadImage(id, size, flag("--out")));
+        } else {
+          throw new Error("Unknown recipes command");
+        }
+      } else if (command === "categories") {
+        if (subCommand === "list") {
+          output(await Cookbook.listCategories());
+        } else if (subCommand === "rename") {
+          const from = flag("--category");
+          if (from === void 0) throw new Error("Missing --category <current name>");
+          const to = flag("--name");
+          if (to === void 0) throw new Error("Missing --name <new name>");
+          output(await Cookbook.renameCategory(from, to));
+        } else {
+          throw new Error("Unknown categories command");
+        }
+      } else if (command === "keywords") {
+        if (subCommand === "list") {
+          output(await Cookbook.listKeywords());
+        } else {
+          throw new Error("Unknown keywords command");
+        }
+      } else {
+        if (subCommand === "config") {
+          const folder = flag("--folder");
+          const interval = flag("--interval");
+          const printImage = flag("--print-image");
+          const visibleBlocks = flag("--visible-blocks");
+          const hasUpdate = [folder, interval, printImage, visibleBlocks].some((v) => v !== void 0);
+          if (!hasUpdate) {
+            output(await Cookbook.getConfig());
+          } else {
+            const updates = {};
+            if (folder !== void 0) updates.folder = folder;
+            if (interval !== void 0) updates.updateInterval = interval;
+            if (printImage !== void 0) updates.printImage = printImage === "true";
+            if (visibleBlocks !== void 0) {
+              const blocks = {};
+              for (const b of Cookbook._lines(visibleBlocks)) {
+                const [key, val] = b.split("=");
+                if (!key) throw new Error(`Invalid --visible-blocks entry '${b}'. Use name=true|false.`);
+                blocks[key.trim()] = val === void 0 ? true : val.trim() === "true";
+              }
+              updates.visibleBlocks = blocks;
+            }
+            output(await Cookbook.setConfig(updates));
+          }
+        } else if (subCommand === "reindex") {
+          output(await Cookbook.reindex());
+        } else {
+          throw new Error("Unknown cookbook command");
+        }
+      }
     } else {
-      console.log("Usage: node index.js <notes|files|calendar|calendars|tasks|contacts|addressbooks|shares|boards|stacks|cards|labels> <list|get|create|search|edit|delete|move|create-link> [options]");
+      console.log("Usage: node index.js <notes|files|calendar|calendars|tasks|contacts|addressbooks|shares|boards|stacks|cards|labels|recipes|categories|keywords|cookbook> <list|get|create|search|edit|delete|move|import|rename|config|reindex|create-link> [options]");
     }
   } catch (err) {
     errorOutput(err);

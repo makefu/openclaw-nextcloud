@@ -4,7 +4,7 @@
 
 # OpenClaw Nextcloud Skill
 
-A Node.js CLI tool for interacting with Nextcloud services including notes, files, calendars, tasks, contacts, and Deck Kanban boards.
+A Node.js CLI tool for interacting with Nextcloud services including notes, files, calendars, tasks, contacts, Deck Kanban boards, and Cookbook recipes.
 
 ## Features
 
@@ -14,12 +14,14 @@ A Node.js CLI tool for interacting with Nextcloud services including notes, file
 - **Tasks** - Create and manage tasks/todos
 - **Contacts** - Full contact management via CardDAV
 - **Deck** - Manage Kanban boards, stacks, cards, labels, and comments via the Deck API
+- **Cookbook** - Manage recipes, categories, and keywords, import recipes from a URL, and configure the Cookbook app via its REST API
 
 ## Prerequisites
 
 - Node.js 20 or higher
 - A Nextcloud instance with API access
 - An app password for your Nextcloud account
+- The [Cookbook](https://apps.nextcloud.com/apps/cookbook) app installed, for the `recipes` / `categories` / `keywords` / `cookbook` commands
 
 ## Installation
 
@@ -247,6 +249,55 @@ node scripts/nextcloud.js cards delete --board 6 --stack 17 --card 73
 
 Deleting a board (`boards delete --board <id>`) is a soft-delete on the Nextcloud side; the board stops appearing in `boards list` and is purged by the server.
 
+### Cookbook (Recipes)
+
+Requires the Cookbook app to be installed on the Nextcloud instance.
+
+```bash
+# List all recipes (compact stubs with id, name, category, keywords, image, url)
+node scripts/nextcloud.js recipes list
+
+# Full-text search / filter by category / filter by keywords
+node scripts/nextcloud.js recipes list --query "curry"
+node scripts/nextcloud.js recipes list --category "Italien"
+node scripts/nextcloud.js recipes list --keywords "Asien,einfach"
+
+# Show the full schema.org recipe (ingredients, instructions, times, nutrition)
+node scripts/nextcloud.js recipes get --recipe 26961
+
+# Create a recipe
+node scripts/nextcloud.js recipes create --title "Waffeln" --category "Kuchen" \
+  --ingredients $'200 g Mehl\n3 Eier\n1 Prise Salz' \
+  --instructions $'Teig anruehren\nBacken' \
+  --keywords "fruehstueck,einfach" --yield 4 --tools "Waffeleisen" \
+  --prep-time "15 min" --cook-time "1h30" --nutrition-calories "350 kcal"
+
+# Edit a recipe (only the flags you pass change; everything else is preserved)
+node scripts/nextcloud.js recipes edit --recipe 26961 --description "Neue Beschreibung" --keywords "curry,asiatisch"
+node scripts/nextcloud.js recipes edit --recipe 26961 --title "Umbenannt"
+
+# Import a recipe from a public web page (server-side scraper)
+node scripts/nextcloud.js recipes import --url "https://www.chefkoch.de/rezepte/1261361231449346/Ananas-Huehnchen-Curry.html"
+
+# Download a recipe image
+node scripts/nextcloud.js recipes image --recipe 26961 --size full --out /tmp/curry.jpg
+
+# Delete a recipe
+node scripts/nextcloud.js recipes delete --recipe 26961
+
+# Categories and keywords
+node scripts/nextcloud.js categories list
+node scripts/nextcloud.js categories rename --category "Kuchen" --name "Gebaeck"
+node scripts/nextcloud.js keywords list
+
+# Cookbook app config and search index
+node scripts/nextcloud.js cookbook config
+node scripts/nextcloud.js cookbook config --print-image false --visible-blocks "tools=false,nutrition-information=true"
+node scripts/nextcloud.js cookbook reindex
+```
+
+`--ingredients`, `--instructions`, and `--tools` take a single value that is split into a list: a literal `--` separator wins, then newlines, then `;`. Duration flags accept ISO 8601 (`PT1H30M`) or free text (`90`, `90 min`, `1h30`, `2 hours`); the server stores and returns them as ISO 8601 durations.
+
 ## Output Format
 
 All commands return JSON output:
@@ -279,6 +330,7 @@ This tool uses the following Nextcloud APIs:
 | Contacts | CardDAV | `/remote.php/dav/addressbooks/` |
 | Shares | OCS | `/ocs/v2.php/apps/files_sharing/api/v1/shares` |
 | Deck | REST | `/index.php/apps/deck/api/v1.1/` |
+| Cookbook | REST | `/index.php/apps/cookbook/api/v1/` |
 
 ## Dependencies
 
